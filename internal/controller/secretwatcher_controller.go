@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	swv1 "github.com/eofff/secret-operator/api/v1"
+	secretv1 "github.com/eofff/secret-operator/api/v1"
 )
 
 // SecretWatcherReconciler reconciles a SecretWatcher object
@@ -52,7 +52,7 @@ type SecretWatcherReconciler struct {
 func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	secretWatcher := &swv1.SecretWatcher{}
+	secretWatcher := &secretv1.SecretWatcher{}
 	err := r.Get(
 		ctx,
 		types.NamespacedName{
@@ -130,6 +130,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				newSecret.Namespace = ns
 				delete(newSecret.Labels, "copy-me")
 				newSecret.Labels["copied"] = "true"
+				newSecret.ResourceVersion = ""
 				err = r.Create(ctx, &newSecret)
 				if err == nil {
 					log.Log.Info("copy of %s created in ns: %s", originalSecret.Name, ns)
@@ -147,10 +148,25 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				headlessSecret.Namespace = "buff"
 
 				if !compareSecrets(&headlessOriginal, headlessSecret) {
-					updatedSecret := headlessOriginal
+					updatedSecret := secret
 					updatedSecret.Namespace = ns
+					updatedSecret.Labels = make(map[string]string)
+					updatedSecret.Data = make(map[string][]byte)
+
+					for k, v := range originalSecret.Labels {
+						if k == "copy-me" {
+							continue
+						}
+
+						updatedSecret.Labels[k] = v
+					}
+
+					for k, v := range originalSecret.Data {
+						updatedSecret.Data[k] = v
+					}
+
 					updatedSecret.Labels["copied"] = "true"
-					err = r.Update(ctx, &updatedSecret)
+					err = r.Update(ctx, updatedSecret)
 					if err == nil {
 						log.Log.Info("copy of %s updated in ns: %s", originalSecret.Name, ns)
 					} else {
@@ -224,6 +240,6 @@ func compareSecrets(secret1, secret2 *v1.Secret) bool {
 // SetupWithManager sets up the controller with the Manager.
 func (r *SecretWatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&swv1.SecretWatcher{}).
+		For(&secretv1.SecretWatcher{}).
 		Complete(r)
 }
