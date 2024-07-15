@@ -1,0 +1,13 @@
+apiVersion: secret.fearning/v1
+kind: SecretWatcher
+metadata:
+  labels:
+    app.kubernetes.io/name: secretwatcher
+    app.kubernetes.io/instance: secretwatcher-sample
+    app.kubernetes.io/part-of: secret-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: secret-operator
+  name: {{ .Values.name }}
+spec:
+  checkTimeoutSeconds: {{ .Values.checkTimeoutSeconds }}
+  namespaces: {{ .Values.namespaces }}
