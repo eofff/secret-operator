@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -66,6 +67,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// check if all watched namespaces exist
 	for _, ns := range secretWatcher.Spec.Namespaces {
 		namespace := &v1.Namespace{}
 		err = r.Get(
@@ -82,6 +84,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// let's search copied secrets
 	copiedSecrets := &v1.SecretList{}
 	copiedSecretOpts := []client.ListOption{
 		client.MatchingLabels{"copied": "true"},
@@ -92,6 +95,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// create map of copied secrets for delete parentless
 	unusedCopied := make(map[types.NamespacedName]bool)
 	for _, secret := range copiedSecrets.Items {
 		unusedCopied[types.NamespacedName{
@@ -100,6 +104,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}] = true
 	}
 
+	// search original secrets
 	copymeSecrets := &v1.SecretList{}
 	copymeSecretOpts := []client.ListOption{
 		client.MatchingLabels{"copy-me": "true"},
@@ -125,6 +130,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				secret,
 			)
 
+			// if copy not exists
 			if err != nil {
 				newSecret := originalSecret
 				newSecret.Namespace = ns
@@ -133,11 +139,12 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				newSecret.ResourceVersion = ""
 				err = r.Create(ctx, &newSecret)
 				if err == nil {
-					log.Log.Info("copy of %s created in ns: %s", originalSecret.Name, ns)
+					log.Log.Info(fmt.Sprintf("copy of %s created in ns: %s", originalSecret.Name, ns))
 				} else {
 					return ctrl.Result{}, err
 				}
 			} else {
+				// if parent exists, delete from unused
 				delete(unusedCopied, types.NamespacedName{
 					Name:      secret.Name,
 					Namespace: secret.Namespace,
@@ -168,7 +175,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 					updatedSecret.Labels["copied"] = "true"
 					err = r.Update(ctx, updatedSecret)
 					if err == nil {
-						log.Log.Info("copy of %s updated in ns: %s", originalSecret.Name, ns)
+						log.Log.Info(fmt.Sprintf("copy of %s updated in ns: %s", originalSecret.Name, ns))
 					} else {
 						return ctrl.Result{}, err
 					}
@@ -177,6 +184,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// delete parentless copied secrets
 	for secretTag := range unusedCopied {
 		secret := &v1.Secret{}
 		err = r.Get(ctx, secretTag, secret)
@@ -186,7 +194,7 @@ func (r *SecretWatcherReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		err = r.Delete(ctx, secret)
 		if err == nil {
-			log.Log.Info("copy of %s deleted in ns: %s", secretTag.Name, secretTag.Namespace)
+			log.Log.Info(fmt.Sprintf("copy of %s deleted in ns: %s", secretTag.Name, secretTag.Namespace))
 		} else {
 			return ctrl.Result{}, err
 		}
